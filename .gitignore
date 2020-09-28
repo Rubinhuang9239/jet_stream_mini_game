@@ -1,3 +1,8 @@
+# MacOS Junk
+.DS_Store
+.AppleDouble
+.LSOverride
+
 # Logs
 logs
 *.log
