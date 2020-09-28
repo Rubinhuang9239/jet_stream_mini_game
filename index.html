@@ -6,6 +6,10 @@
         <script src="https://cdn.rawgit.com/mrdoob/three.js/master/examples/js/controls/OrbitControls.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/stats.js/r15/Stats.min.js"></script>
         <script src="lib/loaderUtils.js"></script>
+
+        <script src="script/sceneObjectUtils.js"></script>
+        <script src="script/lightingUtils.js"></script>
+        <script src="script/shaderConfig.js"></script>
         <style>
 			body { margin: 0; }
 			canvas { display: block; }
@@ -19,31 +23,28 @@
     <body>
     </body>
     <script>
-        let renderer;
-        let scene;
-        let camera;
-        let controls;
+        let renderer, diffuseTarget, maskTarget;
+        let scene, postScene;
+        let camera, postCamera, controls;
         const lightGroup = {};
         let droneModel;
+        let postMat, postPanelDim;
 
         const clock = new THREE.Clock();
         let stats;
 
-        const jet_mask_uniforms = {
-            u_time: {value: 0.0},
-            u_effectorTex: {value: 0},
-            u_visibility: {value: true}
-        }
-
-        function init(){
+        async function init(){
             stats = new Stats();
             stats.showPanel(0);
             stats.domElement.id = 'statsContainer';
             document.body.appendChild(stats.domElement);
 
             initSceneAndRenderer();
+            initRenderTarget();
+            await initPostScene();
             addLight();
-            void addObject3D();
+            await addObject3D();
+            setMaskSetup(true);
             animate();
         }
 
@@ -52,152 +53,103 @@
             renderer = new THREE.WebGLRenderer();
             renderer.setSize( window.innerWidth, window.innerHeight );
             document.body.appendChild(renderer.domElement);
-            // renderer.setClearColor(0xFF9900);
+            renderer.setClearColor(0x666666);
 
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(
                 75, window.innerWidth / window.innerHeight, 0.1, 1000
             );
 
-            camera.position.copy(new THREE.Vector3(0.0, 10.0, 5.0));
+            camera.position.copy(new THREE.Vector3(0.0, 6.4, 5.0));
             // tool
             controls = new THREE.OrbitControls( camera, renderer.domElement);
+            // controls.autoRotate = true;
         }
 
-        // Add light
-        function addLight(){
-            const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
-            scene.add(ambientLight);
-            const dirLight_0 = new THREE.DirectionalLight(0xffffff, 1.0);
-            dirLight_0.position.set(5.0,10.0,10.0);
-            dirLight_0.lookAt(0,0,0);
-            scene.add(dirLight_0);
-
-            lightGroup.dir = dirLight_0;
-            lightGroup.ambient = ambientLight;
+        // Init Post Scene
+        async function initPostScene(){
+            postScene = new THREE.Scene();
+            // post panel
+            const aspectRatio = window.innerWidth / window.innerHeight;
+            const height = 4; 
+            const width = height * aspectRatio;
+            postPanelDim = new THREE.Vector2( width, height );
+            postMat = new THREE.ShaderMaterial({
+                uniforms: jet_post_uniforms,
+                vertexShader: await loadShader('shader/jet_post.vert'),
+                fragmentShader: await loadShader('shader/jet_post.frag')
+            });
+            const postPanel = new THREE.Mesh(
+                new THREE.PlaneGeometry(
+                    postPanelDim.x, postPanelDim.y, 1
+                ),
+                postMat
+            )
+            postScene.add(postPanel);
+            
+            // post camera
+            postCamera = new THREE.OrthographicCamera(
+                width / - 2, width / 2,
+                height / 2, height / - 2,
+                1,1000
+            );
+            postCamera.position.z = 100;
+            postCamera.lookAt(0.0, 0.0, 0.0);
         }
 
-        // Toggle Lighting
-        function toggleLighting( state ){
-            lightGroup.dir.intensity = state ? 1.0 : 0.0;
-            lightGroup.ambient.intensity = state ? 1.0 : 0.0;
-        }
-
-        // Toggle Jet Stream
-        function toggleJetStream( state ){
-            jet_mask_uniforms.u_visibility.value = state ? state : false;
-        }
-
-        // Add 3D Obejct
-        async function addObject3D(){
-            const gridHelper = new THREE.GridHelper( 20, 20 );
-            scene.add( gridHelper );
-
-            const droneScene = (await loadGLTFModel('shader_042_drone/asset/Drone.gltf')).scene;
-            droneModel = droneScene.children[0];
-            droneModel.scale.set(0.1,0.1,0.1);
-
-            droneModel.traverse(child => {
-                if(child.material){
-                    child.material.map.encoding = THREE.LinearEncoding;
+        // Init the render target
+        function initRenderTarget(){
+            diffuseTarget = new THREE.WebGLRenderTarget(
+                window.innerWidth,
+                window.innerHeight,
+                {
+                    stencilBuffer: false,
+                    encoding: THREE.LinearEncoding,
+                    depthBuffer: true,
+                    format: THREE.RGBFormat
                 }
-            });
-
-            droneModel.position.set(0, 5, 0);
-            droneModel.children[0].rotation.y = -0.5 * Math.PI;
-            controls.target.copy(droneModel.position);
-            controls.update();
-            scene.add(droneModel);
-
-            // Effect host
-
-            const targetL = new THREE.Mesh(
-                new THREE.SphereGeometry(0.8, 16, 16),
-                new THREE.MeshBasicMaterial({color: 0x000077})
-            );
-            const targetR = targetL.clone();
-
-            droneModel.add(targetL,targetR);
-            targetL.position.set(-8.15,4.6,1.1);
-            targetR.position.set(8.15,4.6,1.1);
-            scene.attach(targetL);
-            scene.attach(targetR);
-
-            jet_mask_uniforms.u_effectorTex.value = await loadTexture('img/stain.jpg');
-            jet_mask_uniforms.u_effectorTex.value.wrapS = THREE.ClampToEdgeWrapping;
-            jet_mask_uniforms.u_effectorTex.value.wrapT = THREE.ClampToEdgeWrapping;
-
-            const jetMaskShaderMat = new THREE.ShaderMaterial({
-                uniforms: jet_mask_uniforms,
-                vertexShader: await loadShader('shader_042_drone/jet_mask.vert'),
-                fragmentShader: await loadShader('shader_042_drone/jet_mask.frag'),
-                // side: THREE.DoubleSide,
-                transparent: true
-            });
-
-            const jetConeLeft = new THREE.Mesh(
-                new THREE.ConeGeometry( 5, 28, 64, 1, true),
-                jetMaskShaderMat
-            );
-            const jetConeRight = jetConeLeft.clone()
-
-            jetConeLeft.rotation.x = Math.PI * 0.5;
-            jetConeRight.rotation.x = Math.PI * 0.5;
-
-            const groupL = new THREE.Group();
-            const groupR = new THREE.Group();
-            droneModel.add(groupL, groupR);
-
-            groupL.add(jetConeLeft);
-            groupR.add(jetConeRight);
-            groupL.position.set(-7.15,1.0,2.2);
-            groupR.position.set(7.15,1.0,2.2);
-            groupL.lookAt(targetL.position);
-            groupR.lookAt(targetR.position);
-
-            droneModel.attach(targetL);
-            droneModel.attach(targetR);
-
-            const diffL = new THREE.Vector3(
-                groupL.position.x - targetL.position.x,
-                groupL.position.y - targetL.position.y,
-                groupL.position.z - targetL.position.z
-            );
-            groupL.position.set(
-                groupL.position.x + diffL.x * 1.7,
-                groupL.position.y + diffL.y * 1.7,
-                groupL.position.z + diffL.z * 1.7
             );
 
-            const diffR = new THREE.Vector3(
-                groupR.position.x - targetR.position.x,
-                groupR.position.y - targetR.position.y,
-                groupR.position.z - targetR.position.z
+            maskTarget = new THREE.WebGLRenderTarget(
+                window.innerWidth,
+                window.innerHeight,
+                {
+                    stencilBuffer: false,
+                    encoding: THREE.LinearEncoding,
+                    depthBuffer: true,
+                    format: THREE.RGBFormat
+                }
             );
-            groupR.position.set(
-                groupR.position.x + diffR.x * 1.7,
-                groupR.position.y + diffR.y * 1.7,
-                groupR.position.z + diffR.z * 1.7
-            );
-        } 
+        }
 
         // Kick off the render/ animation
         function animate(){
             stats.begin();
 
             const cTime = clock.getElapsedTime();
-            jet_mask_uniforms.u_time.value = cTime;
-            renderer.render( scene, camera );
-
+            jet_mask_uniforms.u_time.value = jet_post_uniforms.u_time = cTime;
 
             // 1. render image of the scene with lighting, without jet stream
             // render target
+            setMaskSetup(false);
+            renderer.setRenderTarget(diffuseTarget);
+            renderer.render(scene, camera);
 
             // 2. turn off lighting and render jet stream (mask)
             // render target
+            setMaskSetup(true);
+            renderer.setRenderTarget(maskTarget);
+            renderer.render(scene, camera);
 
             // 3. render final result of the scene with masked FX distortion
+            renderer.setRenderTarget(null);
+
+            jet_post_uniforms.u_diffuseTex.value = diffuseTarget.texture;
+            jet_post_uniforms.u_maskTex.value = maskTarget.texture;
             
+            renderer.render( postScene, postCamera );
+
+            // controls.update();
             stats.end();
             requestAnimationFrame( animate );
         }
@@ -205,6 +157,7 @@
         function setMaskSetup( state ){
             toggleLighting(!state);
             toggleJetStream(state);
+            renderer.setClearColor(state? 0x000000 : 0x666666);
         }
 
         // Kick off all
@@ -215,6 +168,13 @@
         function onWindowResize(){
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
+
+            postCamera.left = postPanelDim.x / - 2;
+            postCamera.right = postPanelDim.x / 2;
+            postCamera.top = postPanelDim.y / 2;
+            postCamera.bottom = postPanelDim.y / - 2;
+            postCamera.updateProjectionMatrix();
+
             renderer.setSize( window.innerWidth, window.innerHeight );
         }
     </script>
