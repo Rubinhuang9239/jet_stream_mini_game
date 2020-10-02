@@ -1,0 +1,226 @@
+<html>
+    <title>Three.js Drone</title>
+    <head>
+        <script src="/socket.io/socket.io.js"></script>
+
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r119/three.min.js"></script>
+        <script src="https://cdn.rawgit.com/mrdoob/three.js/master/examples/js/loaders/GLTFLoader.js"></script>
+        <script src="https://cdn.rawgit.com/mrdoob/three.js/master/examples/js/controls/OrbitControls.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/stats.js/r15/Stats.min.js"></script>
+        <script src="lib/loaderUtils.js"></script>
+
+        <script src="script/socket.js"></script>
+        <script src="script/camera.js"></script>
+        <script src="script/sceneObjectUtils.js"></script>
+        <script src="script/lightingUtils.js"></script>
+        <script src="script/shaderConfig.js"></script>
+        <script src="script/inputControl.js"></script>
+
+        <script src="script/bullet.js"></script>
+        <style>
+			body { margin: 0; }
+			canvas { display: block; }
+            #statsContainer{
+                position: fixed;
+                top: 0px;
+                left: 0px;
+            }
+		</style>
+    </head>
+    <body>
+    </body>
+    <script>
+        let renderer, diffuseTarget, maskTarget;
+        let scene, postScene, skySphere;
+        let cCamera, mainCamera, subCamera, postCamera, controls;
+        const lightGroup = {};
+        let droneRoot, droneRotGroup, droneModel, rotTarget;
+        const turboFans = [];
+        let postMat, postPanelDim;
+        let whirlpoolBase;
+        let gunPos;
+
+        const bullets = [];
+
+        const clock = new THREE.Clock();
+        let stats;
+
+        async function init(){
+            stats = new Stats();
+            stats.showPanel(0);
+            stats.domElement.id = 'statsContainer';
+            document.body.appendChild(stats.domElement);
+
+            // 3D
+            initSceneAndRenderer();
+            configMainCamera();
+            initRenderTarget();
+            await initPostScene();
+            addLight();
+            await addObject3D();
+            configSubCamera();
+            await addSkySphere();
+            setMaskSetup(true);
+            animate();
+        }
+
+        // Init the renderer and scene
+        function initSceneAndRenderer(){
+            renderer = new THREE.WebGLRenderer();
+            renderer.setSize( window.innerWidth, window.innerHeight );
+            document.body.appendChild(renderer.domElement);
+            renderer.setClearColor(0x000000);
+            scene = new THREE.Scene();
+        }
+
+        // Init Post Scene
+        async function initPostScene(){
+            postScene = new THREE.Scene();
+            // post panel
+            const aspectRatio = window.innerWidth / window.innerHeight;
+            const height = 4; 
+            const width = height * aspectRatio;
+            postPanelDim = new THREE.Vector2( width, height );
+            postMat = new THREE.ShaderMaterial({
+                uniforms: jet_post_uniforms,
+                vertexShader: await loadShader('shader/jet_post.vert'),
+                fragmentShader: await loadShader('shader/jet_post.frag')
+            });
+            const postPanel = new THREE.Mesh(
+                new THREE.PlaneGeometry(
+                    postPanelDim.x, postPanelDim.y, 1
+                ),
+                postMat
+            )
+            postScene.add(postPanel);
+            
+            // post camera
+            postCamera = new THREE.OrthographicCamera(
+                width / - 2, width / 2,
+                height / 2, height / - 2,
+                1,1000
+            );
+            postCamera.position.z = 100;
+            postCamera.lookAt(0.0, 0.0, 0.0);
+        }
+
+        // Init the render target
+        function initRenderTarget(){
+            diffuseTarget = new THREE.WebGLRenderTarget(
+                window.innerWidth,
+                window.innerHeight,
+                {
+                    stencilBuffer: false,
+                    encoding: THREE.LinearEncoding,
+                    depthBuffer: true,
+                    format: THREE.RGBFormat
+                }
+            );
+
+            maskTarget = new THREE.WebGLRenderTarget(
+                window.innerWidth,
+                window.innerHeight,
+                {
+                    stencilBuffer: false,
+                    encoding: THREE.LinearEncoding,
+                    depthBuffer: true,
+                    format: THREE.RGBFormat
+                }
+            );
+        }
+
+        // Kick off the render/ animation
+        function animate(){
+            stats.begin();
+
+            // input
+            const transform = calcuInput();
+            droneRoot.position.add(transform.translate);
+            droneRoot.rotateY(transform.rotate.yaw);
+            droneModel.rotateY(transform.rotate.yaw);
+
+            // const worldGunPos = new THREE.Vector3();
+            // const worldGunDir = new THREE.Vector3();
+            // gunPos.getWorldPosition(worldGunPos);
+            // gunPos.getWorldDirection(worldGunDir);
+            // arrowHelper.setDirection(worldGunDir);
+            // arrowHelper.position.copy(worldGunPos);
+
+            updateDirLightPos(droneRoot.position);
+
+            // object animations
+            for(const [index,fan] of turboFans.entries()){
+                fan.rotateZ(-0.12 * (2*index-1));
+            }
+            controls.target.copy(droneRoot.position);
+            controls.update();
+
+            whirlpoolBase.rotateZ(0.02);
+
+            const trash = [];
+            if(bullets.length > 10){
+                scene.remove(bullets[0].mesh);
+                bullets.splice(0, 1);
+            }
+            for(const bullet of bullets){
+                const needToClear = bullet.update();
+                if(!needToClear){continue;}
+                trash.push(bullet);
+            }
+            while(trash.length > 0){
+                scene.remove(trash[0].mesh);
+                bullets.splice( bullets.indexOf(trash[0]), 1 );
+                trash.splice(0,1);
+            }
+
+            // time
+
+            const cTime = clock.getElapsedTime();
+            jet_mask_uniforms.u_time.value = 
+            jet_post_uniforms.u_time.value = 
+            whirlpool_uniforms.u_time.value =
+            cTime;
+
+            // 1. render image of the scene with lighting, without jet stream
+            // render target
+            setMaskSetup(false);
+            renderer.setRenderTarget(diffuseTarget);
+            renderer.render(scene, cCamera);
+
+            // 2. turn off lighting and render jet stream (mask)
+            // render target
+            setMaskSetup(true);
+            renderer.setRenderTarget(maskTarget);
+            renderer.render(scene, cCamera);
+
+            // 3. render final result of the scene with masked FX distortion
+            renderer.setRenderTarget(null);
+
+            jet_post_uniforms.u_diffuseTex.value = diffuseTarget.texture;
+            jet_post_uniforms.u_maskTex.value = maskTarget.texture;
+            
+            renderer.render( postScene, postCamera );
+
+            // controls.update();
+            stats.end();
+            requestAnimationFrame( animate );
+        }
+
+        function setMaskSetup( state ){
+            toggleLighting(!state);
+            toggleJetStream(state);
+            skySphere.visible = !state;
+            // renderer.setClearColor(state? 0x000000 : 0x222222);
+        }
+
+        // Kick off all
+        init();
+
+        // Utils
+        window.addEventListener( 'resize', onWindowResize);
+        function onWindowResize(){
+            resizeCameras();
+            renderer.setSize( window.innerWidth, window.innerHeight );
+        }
+    </script>
+</html>

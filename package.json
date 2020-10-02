@@ -1,0 +1,36 @@
+{
+  "name": "jet_stream_mini_game",
+  "version": "1.0.0",
+  "description": "WebGL and GLSL Based mini flight sim.",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rubinhuang9239/jet_stream_mini_game.git"
+  },
+  "keywords": [
+    "WebGL",
+    "GLSL",
+    "THREE",
+    "Nodejs",
+    "Game"
+  ],
+  "author": "Rubin Huang",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Rubinhuang9239/jet_stream_mini_game/issues"
+  },
+  "homepage": "https://github.com/Rubinhuang9239/jet_stream_mini_game#readme",
+  "dependencies": {
+    "express": "^4.17.1",
+    "node-bitarray": "^0.1.0",
+    "node-hid": "^1.3.1",
+    "socket.io": "^2.3.0"
+  }
+}
