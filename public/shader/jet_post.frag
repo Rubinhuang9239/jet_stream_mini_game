@@ -2,31 +2,38 @@
 precision mediump float;
 #endif
 
+uniform bool u_useDistort;
+uniform float u_bloomTreshold;
 uniform float u_time;
 uniform sampler2D u_diffuseTex;
 uniform sampler2D u_maskTex;
 
 varying vec2 v_uv;
 
-void main(){
+void main(){    
     vec3 mask = texture2D(u_maskTex, v_uv).rgb;
-
     vec3 color;
-    if(mask.r > 0.08){
-        color = texture2D(
-            u_diffuseTex, 
-            vec2(
-                v_uv.x + mask.r * 0.036,
-                v_uv.y - mask.r * 0.052
-            )
-        ).rgb + vec3(pow(mask.r * 0.4, 2.5)*2.8, mask.r * 0.32, pow(mask.r * 0.55, 1.5) * 3.2);
+
+    if(u_useDistort){
+        if(mask.r > 0.08){
+            color = texture2D(
+                u_diffuseTex, 
+                vec2(
+                    v_uv.x + mask.r * 0.036,
+                    v_uv.y - mask.r * 0.052
+                )
+            ).rgb + vec3(pow(mask.r * 0.4, 2.5)*2.8, mask.r * 0.32, pow(mask.r * 0.55, 1.5) * 3.2);
+        }
+        else{
+            color = texture2D(u_diffuseTex, v_uv).rgb;
+        }
     }
     else{
         color = texture2D(u_diffuseTex, v_uv).rgb;
     }
 
     // float brightness = (color.r + color.g + color.b)/3.0;
-    float bloomThresh = 0.32;
+    float bloomThresh = u_bloomTreshold;
     float divideLevel = 0.001;
     int sampleLevel = 16;
     float avgSampleBrightness = 0.0;

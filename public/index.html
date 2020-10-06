@@ -6,7 +6,11 @@
         <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r119/three.min.js"></script>
         <script src="https://cdn.rawgit.com/mrdoob/three.js/master/examples/js/loaders/GLTFLoader.js"></script>
         <script src="https://cdn.rawgit.com/mrdoob/three.js/master/examples/js/controls/OrbitControls.js"></script>
+
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/stats.js/r15/Stats.min.js"></script>
+
+
         <script src="lib/loaderUtils.js"></script>
 
         <script src="script/socket.js"></script>
@@ -43,10 +47,25 @@
         const bullets = [];
 
         const clock = new THREE.Clock();
-        let stats;
+
+        const stats = new Stats();
+
+        const tweakParams = {
+            Jet_Flow_Distort: false,
+            Air_Pressure_Distort: false,
+            Pressure_Distort_Level: 0.32,
+			Post_Bloom_Treashold: 1.0,
+        }
+
+        const gui = new dat.GUI({name: 'Effect Modifier', width: 340 });
+        gui.add( tweakParams, 'Jet_Flow_Distort' );
+        gui.add( tweakParams, 'Air_Pressure_Distort' );
+        gui.add( tweakParams, 'Pressure_Distort_Level', 0.0, 0.5);
+        gui.add( tweakParams, 'Post_Bloom_Treashold', 0.0, 1.0);
+	    gui.open();
+
 
         async function init(){
-            stats = new Stats();
             stats.showPanel(0);
             stats.domElement.id = 'statsContainer';
             document.body.appendChild(stats.domElement);
@@ -173,8 +192,14 @@
                 trash.splice(0,1);
             }
 
-            // time
+            // update shader uniforms
 
+            jet_post_uniforms.u_useDistort.value = tweakParams.Jet_Flow_Distort;
+            jet_post_uniforms.u_bloomTreshold.value = tweakParams.Post_Bloom_Treashold;
+            whirlpool_uniforms.u_useDistort.value = tweakParams.Air_Pressure_Distort;
+            whirlpool_uniforms.u_distortLevel.value = tweakParams.Pressure_Distort_Level;
+
+            // time
             const cTime = clock.getElapsedTime();
             jet_mask_uniforms.u_time.value = 
             jet_post_uniforms.u_time.value = 

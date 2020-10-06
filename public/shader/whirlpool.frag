@@ -2,6 +2,8 @@
 precision mediump float;
 #endif
 
+uniform bool u_useDistort;
+uniform float u_distortLevel;
 uniform float u_time;
 uniform sampler2D u_speedTex;
 
@@ -43,12 +45,16 @@ float circleShape(vec2 position, float radius){
 }
 
 void main(){
+    if(!u_useDistort){
+        discard;
+    }
+
     vec4 color;
 
     vec4 speedTex = texture2D(u_speedTex, v_uv);
     vec4 speedTexTrans = vec4(speedTex.rgb, speedTex.r);
 
-    float noiseVal = noise(v_uv * 3.2 + u_time * 1.6) * 0.32;
+    float noiseVal = noise(v_uv * 3.2 + u_time * 1.6) * u_distortLevel; 
     float dist = distance(v_uv, vec2(0.5));
     dist += noiseVal*(1.25-dist);
     color += speedTexTrans * sin(dist * 36.0 - u_time * 26.0) + 0.2;
